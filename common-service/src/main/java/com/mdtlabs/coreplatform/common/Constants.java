@@ -574,6 +574,13 @@ public final class Constants {
     public static List<CultureDTO> CULTURE_LIST = new ArrayList<>();
     public static List<FrequencyType> FREQUENCY_TYPE = new ArrayList<>();
     public static final String SPACE_COMMA_SPACE_SPLIT_PATTERN = "\\s*,\\s*";
+    public static final String SHA_256 = "SHA-256";
+    public static final String NO_SUCH_ALGORITHM = "No such algorithm Exception occurred : \n";
+    public static final String TYPE_NOT_NULL_MESSAGE = "Type should not be null";
+    public static final String ENROLLMENT_DATA = "Enrollment_Data";
+    public static final String DEDUPLICATION_ID = "deduplicationId";
+    public static final String BODY = "body";
+    public static final String ASSESSMENT_DATA = "Assessment_Data";
 
     private Constants() {
     }

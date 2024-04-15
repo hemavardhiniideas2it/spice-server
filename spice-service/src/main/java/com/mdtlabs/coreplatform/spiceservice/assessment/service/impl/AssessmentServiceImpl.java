@@ -31,6 +31,7 @@ import com.mdtlabs.coreplatform.common.model.entity.spice.PatientTreatmentPlan;
 import com.mdtlabs.coreplatform.common.model.entity.spice.RedRiskNotification;
 import com.mdtlabs.coreplatform.common.util.CommonUtil;
 import com.mdtlabs.coreplatform.common.util.ConversionUtil;
+import com.mdtlabs.coreplatform.common.util.UniqueCodeGenerator;
 import com.mdtlabs.coreplatform.spiceservice.AdminApiInterface;
 import com.mdtlabs.coreplatform.spiceservice.NotificationApiInterface;
 import com.mdtlabs.coreplatform.spiceservice.UserApiInterface;
@@ -49,7 +50,10 @@ import com.mdtlabs.coreplatform.spiceservice.patientsymptom.service.PatientSympt
 import com.mdtlabs.coreplatform.spiceservice.patienttracker.service.PatientTrackerService;
 import com.mdtlabs.coreplatform.spiceservice.patienttreatmentplan.service.PatientTreatmentPlanService;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -128,6 +132,17 @@ public class AssessmentServiceImpl implements AssessmentService {
     @Autowired
     private UserApiInterface userApiInterface;
 
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    @Value("${rabbitmq.exchange.name}")
+    private String exchange;
+
+    @Value("${rabbitmq.routing.key.name}")
+    private String routingKey;
+
+    @Value("${app.enableFhir}")
+    private boolean enableFhir;
     /**
      * {@inheritDoc}
      */
@@ -147,9 +162,49 @@ public class AssessmentServiceImpl implements AssessmentService {
                 Constants.WORKFLOW_ASSESSMENT, patientTracker.getId());
         createMentalHealth(assessmentRequest, patientTracker, assessmentResponse);
         setPatientTracker(assessmentRequest, patientTracker);
+
+        String riskLevel = patientTracker.getRiskLevel();
+        BpLog bpLog = constructBpLog(assessmentRequest, riskLevel);
+        GlucoseLog glucoseLog = constructGlucoseLog(assessmentRequest);
+        PatientAssessment assessmentLog = patientAssessmentRepository.save(new PatientAssessment(bpLog.getId(), Objects.isNull(glucoseLog)? null: glucoseLog.getId(),
+                Constants.ASSESSMENT, assessmentRequest.getTenantId(), assessmentRequest.getPatientTrackId()));
+        if(enableFhir) {
+            try {
+                setAndSendFhirAssessmentRequest(glucoseLog, bpLog, assessmentLog, patientTracker);
+            } catch (JsonProcessingException e) {
+                Logger.logError("ERROR Converting from Object to String");
+            } catch (AmqpException amqpException) {
+                Logger.logError("ERROR Connecting to RabbitMQ Queue");
+                throw new AmqpException(amqpException);
+            }
+        }
         patientTrackerService.addOrUpdatePatientTracker(patientTracker);
         constructPatientResponse(assessmentRequest, assessmentResponse, patientTracker);
         return assessmentResponse;
+    }
+
+    private void setAndSendFhirAssessmentRequest(GlucoseLog glucoseLog, BpLog bpLog,
+                                                   PatientAssessment assessmentLog, PatientTracker patientTracker) throws JsonProcessingException {
+        FhirAssessmentRequestDto fhirAssessmentRequestDto = new FhirAssessmentRequestDto();
+        fhirAssessmentRequestDto.setGlucoseLog(glucoseLog);
+        fhirAssessmentRequestDto.setBpLog(bpLog);
+        fhirAssessmentRequestDto.setType(Constants.ASSESSMENT_DATA);
+        fhirAssessmentRequestDto.setPatientAssessment(assessmentLog);
+        fhirAssessmentRequestDto.setCreatedBy(assessmentLog.getCreatedBy());
+        fhirAssessmentRequestDto.setUpdatedBy(assessmentLog.getUpdatedBy());
+        fhirAssessmentRequestDto.setPatientTrackId(assessmentLog.getPatientTrackId());
+        fhirAssessmentRequestDto.setPatientTracker(patientTrackerService.addOrUpdatePatientTracker(patientTracker));
+
+        ObjectMapper objectMapper = new ObjectMapper();
+        String jsonString = objectMapper.writeValueAsString(fhirAssessmentRequestDto);
+        String deduplicationId = UniqueCodeGenerator.generateUniqueCode(jsonString);
+
+        Map<String, Object> message = new HashMap<>();
+        message.put(Constants.DEDUPLICATION_ID, deduplicationId);
+        message.put(Constants.BODY,jsonString);
+        String jsonMessage = objectMapper.writeValueAsString(message);
+        Logger.logDebug("In AssessmentServiceImpl, setAndSendFhirAssessmentRequest :: "+ jsonMessage);
+        rabbitTemplate.convertAndSend(exchange,routingKey,jsonMessage);
     }
 
     /**
