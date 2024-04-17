@@ -1,5 +1,7 @@
 package com.mdtlabs.coreplatform.spiceservice.assessment.service.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mdtlabs.coreplatform.AuthenticationFilter;
 import com.mdtlabs.coreplatform.common.Constants;
 import com.mdtlabs.coreplatform.common.UnitConstants;
@@ -9,6 +11,7 @@ import com.mdtlabs.coreplatform.common.exception.DataNotAcceptableException;
 import com.mdtlabs.coreplatform.common.exception.DataNotFoundException;
 import com.mdtlabs.coreplatform.common.logger.Logger;
 import com.mdtlabs.coreplatform.common.model.dto.SmsDTO;
+import com.mdtlabs.coreplatform.common.model.dto.fhir.FhirAssessmentRequestDto;
 import com.mdtlabs.coreplatform.common.model.dto.spice.AssessmentDTO;
 import com.mdtlabs.coreplatform.common.model.dto.spice.AssessmentResponseDTO;
 import com.mdtlabs.coreplatform.common.model.dto.spice.BpLogDTO;
